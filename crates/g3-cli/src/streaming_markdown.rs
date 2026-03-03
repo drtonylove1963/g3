@@ -22,6 +22,35 @@ use termimad::MadSkin;
 static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
 static THEME_SET: Lazy<ThemeSet> = Lazy::new(ThemeSet::load_defaults);
 
+// ── Catppuccin Macchiato palette ──────────────────────────────────────────────
+// https://github.com/catppuccin/catppuccin  (Macchiato variant)
+//
+// Each constant is an ANSI 24-bit color prefix: \x1b[38;2;R;G;Bm
+// Combine with style modifiers (1=bold, 3=italic, 4=underline, 9=strike) as needed.
+
+/// Mauve #c6a0f6 — H1 headers
+const MAUVE: &str = "\x1b[38;2;198;160;246m";
+/// Blue #8aadf4 — H2 headers
+const BLUE: &str = "\x1b[38;2;138;173;244m";
+/// Lavender #b7bdf8 — H3 headers
+const LAVENDER: &str = "\x1b[38;2;183;189;248m";
+/// Teal #8bd5ca — H4 headers
+const TEAL: &str = "\x1b[38;2;139;213;202m";
+/// Subtext1 #a5adcb — H5/H6 headers (dim)
+const SUBTEXT1: &str = "\x1b[38;2;165;173;203m";
+/// Sky #91d7e3 — bold text
+const SKY: &str = "\x1b[38;2;145;215;227m";
+/// Sapphire #7dc4e4 — italic text
+const SAPPHIRE: &str = "\x1b[38;2;125;196;228m";
+/// Peach #f5a97f — inline code
+const PEACH: &str = "\x1b[38;2;245;169;127m";
+/// Green #a6da95 — links
+const GREEN: &str = "\x1b[38;2;166;218;149m";
+/// Overlay1 #8087a2 — horizontal rules, muted elements
+const OVERLAY1: &str = "\x1b[38;2;128;135;162m";
+/// Reset all attributes
+const RESET: &str = "\x1b[0m";
+
 /// Types of markdown delimiters we track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DelimiterKind {
@@ -528,7 +557,7 @@ impl StreamingMarkdownFormatter {
                 || (trimmed.len() >= 3 && trimmed.chars().all(|c| c == '_'));
             if is_hr {
                 // Emit a horizontal rule
-                self.pending_output.push_back("\x1b[2m────────────────────────────────────────\x1b[0m\n".to_string());
+                self.pending_output.push_back(format!("{}────────────────────────────────────────{}\n", OVERLAY1, RESET));
                 self.current_line.clear();
                 self.delimiter_stack.clear();
                 return;
@@ -569,12 +598,12 @@ impl StreamingMarkdownFormatter {
         // Format based on level (magenta, bold for h1/h2)
         // We wrap the already-formatted content in header color, then reset at the end
         match level {
-            1 => format!("\x1b[1;95m{}\x1b[0m\n", formatted_content),  // Bold pink (Dracula)
-            2 => format!("\x1b[35m{}\x1b[0m\n", formatted_content),    // Purple/magenta (Dracula)
-            3 => format!("\x1b[36m{}\x1b[0m\n", formatted_content),    // Cyan (Dracula)
-            4 => format!("\x1b[37m{}\x1b[0m\n", formatted_content),    // White (Dracula)
-            5 => format!("\x1b[2m{}\x1b[0m\n", formatted_content),     // Dim (Dracula)
-            _ => format!("\x1b[2m{}\x1b[0m\n", formatted_content),     // Dim for h6+ (Dracula)
+            1 => format!("\x1b[1m{}{}{}\n", MAUVE, formatted_content, RESET),     // Bold Mauve
+            2 => format!("{}{}{}\n", BLUE, formatted_content, RESET),              // Blue
+            3 => format!("{}{}{}\n", LAVENDER, formatted_content, RESET),          // Lavender
+            4 => format!("{}{}{}\n", TEAL, formatted_content, RESET),              // Teal
+            5 => format!("\x1b[2m{}{}{}\n", SUBTEXT1, formatted_content, RESET),   // Dim Subtext1
+            _ => format!("\x1b[2m{}{}{}\n", SUBTEXT1, formatted_content, RESET),   // Dim Subtext1
         }
     }
     
@@ -607,14 +636,14 @@ impl StreamingMarkdownFormatter {
             let text = &caps[1];
             // Format any inline code within the link text
             let formatted_text = format_inline_code_only(text);
-            format!("\x1b[36;4m{}\x1b[0m", formatted_text)
+            format!("\x1b[4m{}{}{}", GREEN, formatted_text, RESET)
         }).to_string();
         
         // Process inline code `code` -> code (in orange)
         let code_re = regex::Regex::new(r"`([^`]+)`").unwrap();
         result = code_re.replace_all(&result, |caps: &regex::Captures| {
             let code = &caps[1];
-            format!("\x1b[38;2;216;177;114m{}\x1b[0m", code)
+            format!("{}{}{}", PEACH, code, RESET)
         }).to_string();
         
         // Handle unclosed inline code at end of line: `code without closing backtick
@@ -622,7 +651,7 @@ impl StreamingMarkdownFormatter {
         let unclosed_code_re = regex::Regex::new(r"`([^`]+)$").unwrap();
         result = unclosed_code_re.replace_all(&result, |caps: &regex::Captures| {
             let code = &caps[1];
-            format!("\x1b[38;2;216;177;114m{}\x1b[0m", code)
+            format!("{}{}{}", PEACH, code, RESET)
         }).to_string();
         
         // Process strikethrough ~~text~~ -> text (with strikethrough)
@@ -645,7 +674,7 @@ impl StreamingMarkdownFormatter {
             let text = &caps[1];
             // Process nested italic within bold
             let inner = format_nested_italic(text);
-            format!("\x1b[1;32m{}\x1b[0m", inner)
+            format!("\x1b[1m{}{}{}", SKY, inner, RESET)
         }).to_string();
         
         // Restore escaped characters (remove the placeholder markers)
@@ -668,7 +697,7 @@ impl StreamingMarkdownFormatter {
         // Emit language label
         if let Some(ref l) = lang {
             self.pending_output
-                .push_back(format!("\x1b[2;3m{}\x1b[0m\n", l));
+                .push_back(format!("\x1b[2;3m{}{}{}\n", OVERLAY1, l, RESET));
         }
         
         // Highlight the code
@@ -765,7 +794,7 @@ fn format_inline_code_only(text: &str) -> String {
     let code_re = regex::Regex::new(r"`([^`]+)`").unwrap();
     code_re.replace_all(text, |caps: &regex::Captures| {
         let code = &caps[1];
-        format!("\x1b[38;2;216;177;114m{}\x1b[0m", code)
+        format!("{}{}{}", PEACH, code, RESET)
     }).to_string()
 }
 
@@ -774,7 +803,7 @@ fn format_nested_italic(text: &str) -> String {
     let italic_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
     italic_re.replace_all(text, |caps: &regex::Captures| {
         let inner = &caps[1];
-        format!("\x1b[3;36m{}\x1b[0m\x1b[1;32m", inner)  // italic, then restore bold
+        format!("\x1b[3m{}{}{}\x1b[1m{}", SAPPHIRE, inner, RESET, SKY)  // italic sapphire, then restore bold sky
     }).to_string()
 }
 
@@ -783,7 +812,7 @@ fn format_nested_bold(text: &str) -> String {
     let bold_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
     bold_re.replace_all(text, |caps: &regex::Captures| {
         let inner = &caps[1];
-        format!("\x1b[1;32m{}\x1b[0m\x1b[3;36m", inner)  // bold, then restore italic
+        format!("\x1b[1m{}{}{}\x1b[3m{}", SKY, inner, RESET, SAPPHIRE)  // bold sky, then restore italic sapphire
     }).to_string()
 }
 
@@ -819,7 +848,7 @@ fn process_italic_with_nested_bold(text: &str) -> String {
                 let inner: String = chars[start..end_pos].iter().collect();
                 // Process nested bold within the italic content
                 let formatted_inner = format_nested_bold(&inner);
-                result.push_str(&format!("\x1b[3;36m{}\x1b[0m", formatted_inner));
+                result.push_str(&format!("\x1b[3m{}{}{}", SAPPHIRE, formatted_inner, RESET));
                 i = end_pos + 1;
             } else {
                 // No closing *, just output the *
@@ -860,7 +889,7 @@ fn highlight_code(code: &str, lang: Option<&str>) -> String {
         .and_then(|_| normalized_lang.and_then(|l| SYNTAX_SET.find_syntax_by_token(l)))
         .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
     
-    let theme = &THEME_SET.themes["base16-ocean.dark"];
+    let theme = &THEME_SET.themes["base16-mocha.dark"];
     let mut highlighter = HighlightLines::new(syntax, theme);
     
     let mut output = String::new();
