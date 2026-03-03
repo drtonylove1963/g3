@@ -562,8 +562,8 @@ fn test_bold_formatting() {
     eprintln!("Input: {:?}", input);
     eprintln!("Output: {:?}", full_output);
     
-    // Should contain sky bold ANSI code (Catppuccin Macchiato)
-    assert!(full_output.contains("\x1b[1m\x1b[38;2;145;215;227m"), "Should contain bold formatting");
+    // Should contain sapphire bold ANSI code (Catppuccin Macchiato)
+    assert!(full_output.contains("\x1b[1m\x1b[38;2;125;196;228m"), "Should contain bold formatting");
     // Should NOT contain raw **
     assert!(!full_output.contains("**"), "Should not contain raw **");
 }
@@ -615,10 +615,10 @@ Normal text with **bold**, *italic*, and `inline code` all together.
     assert!(full_output.contains("\x1b[38;2;138;173;244mHeader 2"), "H2 should be blue");
     
     // Check bold is green
-    assert!(full_output.contains("\x1b[1m\x1b[38;2;145;215;227mbold text\x1b[0m"), "Bold should be sky");
+    assert!(full_output.contains("\x1b[1m\x1b[38;2;125;196;228mbold text\x1b[0m"), "Bold should be sapphire");
     
     // Check italic is cyan
-    assert!(full_output.contains("\x1b[3m\x1b[38;2;125;196;228mitalic text\x1b[0m"), "Italic should be sapphire");
+    assert!(full_output.contains("\x1b[3m\x1b[38;2;145;215;227mitalic text\x1b[0m"), "Italic should be sky");
     
     // Check inline code is orange
     assert!(full_output.contains("\x1b[38;2;245;169;127minline code\x1b[0m"), "Inline code should be peach");
@@ -709,7 +709,7 @@ Your config already has it set up with consult:
     
     // Bold should be formatted, not raw
     assert!(!full_output.contains("**C-x p f**"), "Should not have raw ** bold");
-    assert!(full_output.contains("\x1b[1m\x1b[38;2;145;215;227mC-x p f\x1b[0m"), "Bold should be sky");
+    assert!(full_output.contains("\x1b[1m\x1b[38;2;125;196;228mC-x p f\x1b[0m"), "Bold should be sapphire");
 }
 
 #[test]
@@ -1011,7 +1011,7 @@ fn test_simple_italic() {
     let mut fmt = make_formatter();
     let out = fmt.process("*simple italic*\n");
     eprintln!("Simple italic: {:?}", out);
-    assert!(out.contains("\x1b[3m\x1b[38;2;125;196;228m"), "Should have italic formatting");
+    assert!(out.contains("\x1b[3m\x1b[38;2;145;215;227m"), "Should have italic formatting");
 }
 
 #[test]
@@ -1020,9 +1020,9 @@ fn test_italic_with_nested_bold() {
     let output = fmt.process("*italic with **nested bold** inside*\n");
     eprintln!("Output: {:?}", output);
     // Should have italic formatting (cyan)
-    assert!(output.contains("\x1b[3m\x1b[38;2;125;196;228m"), "Should have italic formatting");
+    assert!(output.contains("\x1b[3m\x1b[38;2;145;215;227m"), "Should have italic formatting");
     // Should have bold formatting (green) for nested bold
-    assert!(output.contains("\x1b[1m\x1b[38;2;145;215;227m"), "Should have bold formatting for nested");
+    assert!(output.contains("\x1b[1m\x1b[38;2;125;196;228m"), "Should have bold formatting for nested");
 }
 
 // =============================================================================
@@ -1793,7 +1793,7 @@ fn test_bold_inside_header() {
     assert!(full.contains("\x1b[1m\x1b[38;2;198;160;246m"), "Should have bold mauve header formatting");
     
     // Should have bold formatting (green) for the bold text inside
-    assert!(full.contains("\x1b[1m\x1b[38;2;145;215;227m"), "Should have sky bold formatting for **Bold Header**");
+    assert!(full.contains("\x1b[1m\x1b[38;2;125;196;228m"), "Should have sapphire bold formatting for **Bold Header**");
 }
 
 #[test]
@@ -1820,7 +1820,7 @@ fn test_italic_inside_header() {
     assert!(full.contains("\x1b[38;2;138;173;244m"), "Should have blue header formatting");
     
     // Should have italic formatting (cyan) for the italic text inside
-    assert!(full.contains("\x1b[3m\x1b[38;2;125;196;228m"), "Should have sapphire italic formatting for *Italic Header*");
+    assert!(full.contains("\x1b[3m\x1b[38;2;145;215;227m"), "Should have sky italic formatting for *Italic Header*");
 }
 
 #[test]
@@ -1870,8 +1870,8 @@ fn test_mixed_formatting_inside_header() {
     assert!(!without_ansi.contains("*italic*"), "Should not contain raw *italic* markers");
     
     // Should have both bold and italic formatting
-    assert!(full.contains("\x1b[1m\x1b[38;2;145;215;227m"), "Should have sky bold formatting");
-    assert!(full.contains("\x1b[3m\x1b[38;2;125;196;228m"), "Should have sapphire italic formatting");
+    assert!(full.contains("\x1b[1m\x1b[38;2;125;196;228m"), "Should have sapphire bold formatting");
+    assert!(full.contains("\x1b[3m\x1b[38;2;145;215;227m"), "Should have sky italic formatting");
 }
 
 /// Helper to strip ANSI escape codes for easier assertion

@@ -38,9 +38,9 @@ const LAVENDER: &str = "\x1b[38;2;183;189;248m";
 const TEAL: &str = "\x1b[38;2;139;213;202m";
 /// Subtext1 #a5adcb — H5/H6 headers (dim)
 const SUBTEXT1: &str = "\x1b[38;2;165;173;203m";
-/// Sky #91d7e3 — bold text
+/// Sky #91d7e3 — italic text
 const SKY: &str = "\x1b[38;2;145;215;227m";
-/// Sapphire #7dc4e4 — italic text
+/// Sapphire #7dc4e4 — bold text
 const SAPPHIRE: &str = "\x1b[38;2;125;196;228m";
 /// Peach #f5a97f — inline code
 const PEACH: &str = "\x1b[38;2;245;169;127m";
@@ -674,7 +674,7 @@ impl StreamingMarkdownFormatter {
             let text = &caps[1];
             // Process nested italic within bold
             let inner = format_nested_italic(text);
-            format!("\x1b[1m{}{}{}", SKY, inner, RESET)
+            format!("\x1b[1m{}{}{}", SAPPHIRE, inner, RESET)
         }).to_string();
         
         // Restore escaped characters (remove the placeholder markers)
@@ -803,7 +803,7 @@ fn format_nested_italic(text: &str) -> String {
     let italic_re = regex::Regex::new(r"\*([^*]+)\*").unwrap();
     italic_re.replace_all(text, |caps: &regex::Captures| {
         let inner = &caps[1];
-        format!("\x1b[3m{}{}{}\x1b[1m{}", SAPPHIRE, inner, RESET, SKY)  // italic sapphire, then restore bold sky
+        format!("\x1b[3m{}{}{}\x1b[1m{}", SKY, inner, RESET, SAPPHIRE)  // italic sky, then restore bold sapphire
     }).to_string()
 }
 
@@ -812,7 +812,7 @@ fn format_nested_bold(text: &str) -> String {
     let bold_re = regex::Regex::new(r"\*\*(.+?)\*\*").unwrap();
     bold_re.replace_all(text, |caps: &regex::Captures| {
         let inner = &caps[1];
-        format!("\x1b[1m{}{}{}\x1b[3m{}", SKY, inner, RESET, SAPPHIRE)  // bold sky, then restore italic sapphire
+        format!("\x1b[1m{}{}{}\x1b[3m{}", SAPPHIRE, inner, RESET, SKY)  // bold sapphire, then restore italic sky
     }).to_string()
 }
 
@@ -848,7 +848,7 @@ fn process_italic_with_nested_bold(text: &str) -> String {
                 let inner: String = chars[start..end_pos].iter().collect();
                 // Process nested bold within the italic content
                 let formatted_inner = format_nested_bold(&inner);
-                result.push_str(&format!("\x1b[3m{}{}{}", SAPPHIRE, formatted_inner, RESET));
+                result.push_str(&format!("\x1b[3m{}{}{}", SKY, formatted_inner, RESET));
                 i = end_pos + 1;
             } else {
                 // No closing *, just output the *
