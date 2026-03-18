@@ -1096,18 +1096,6 @@ impl<W: UiWriter> Agent<W> {
         let response_content = task_result.response.clone();
         let _llm_duration = llm_start.elapsed();
 
-        // Create a mock usage for now (we'll need to track this during streaming)
-        let mock_usage = g3_providers::Usage {
-            prompt_tokens: 100,                                   // Estimate
-            completion_tokens: response_content.len() as u32 / 4, // Rough estimate
-            total_tokens: 100 + (response_content.len() as u32 / 4),
-            cache_creation_tokens: 0,
-            cache_read_tokens: 0,
-        };
-
-        // Update context window with estimated token usage
-        self.context_window.update_usage(&mock_usage);
-
         // Add assistant response to context window only if not empty
         // This prevents the "Skipping empty message" warning when only tools were executed
         // Also strip timing footer - it's display-only and shouldn't be in context
@@ -2192,6 +2180,7 @@ Skip if nothing new. Be brief."#;
         mut request: CompletionRequest,
         show_timing: bool,
     ) -> Result<TaskResult> {
+
         // =========================================================================
         // STREAMING COMPLETION WITH TOOL EXECUTION
         // =========================================================================
@@ -2324,6 +2313,10 @@ Skip if nothing new. Be brief."#;
                             iter.accumulated_usage = Some(usage.clone());
                             state.turn_accumulated_usage = Some(usage.clone());
                             
+                            // Calibrate context window with actual API usage immediately
+                            // (must happen here, not after the loop, because early returns bypass post-loop code)
+                            self.context_window.update_usage_from_response(usage);
+
                             // Update cumulative cache statistics
                             self.cache_stats.total_calls += 1;
                             self.cache_stats.total_input_tokens += usage.prompt_tokens as u64;
@@ -2899,12 +2892,9 @@ Skip if nothing new. Be brief."#;
                 }
             }
 
-            // Update context window with actual usage if available
-            if let Some(usage) = iter.accumulated_usage {
-                debug!("Updating context window with actual usage from stream");
-                self.context_window.update_usage_from_response(&usage);
-            } else {
-                // Fall back to estimation if no usage data was provided
+            // Fall back to estimation if no usage data was provided by the stream
+            // (calibration already happened inline when usage data arrived)
+            if iter.accumulated_usage.is_none() {
                 debug!("No usage data from stream, using estimation");
                 let estimated_tokens = ContextWindow::estimate_tokens(&iter.current_response);
                 self.context_window.add_streaming_tokens(estimated_tokens);

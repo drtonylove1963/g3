@@ -1,5 +1,5 @@
 # Workspace Memory
-> Updated: 2026-02-14T22:33:04Z | Size: 22.9k chars
+> Updated: 2026-03-18T03:59:01Z | Size: 25.2k chars
 
 ### Remember Tool Wiring
 - `crates/g3-core/src/tools/memory.rs` [0..5686]
@@ -397,3 +397,18 @@ Tool output responsive to terminal width — no line wrapping, 4-char right marg
 - `crates/g3-core/src/lib.rs` [1675..1686] - `set_plan_mode(enabled, working_dir)` - captures baseline on enable, clears on disable
 - **Key invariant**: The approval gate NEVER deletes or reverts files. It only warns.
 - **Key invariant**: Pre-existing dirty files (captured at plan mode start) are excluded from gate checks.
+
+### Context Window Calibration (Token Drift Fix)
+- `crates/g3-core/src/context_window.rs` [159..189] - `update_usage_from_response()` now calibrates `used_tokens` from API `prompt_tokens` (ground truth). When `prompt_tokens > 0`, snaps `used_tokens` to it. When 0, leaves unchanged (heuristic fallback).
+- `crates/g3-core/src/context_window.rs` [93..100] - No more 1% safety buffer. `total_tokens = raw` (was `raw * 0.99`).
+- `crates/g3-core/src/context_window.rs` [222..250] - `estimate_message_tokens()` now adds: +4 per-message overhead, +30 per tool_use block (was 20), +15 per tool_result message.
+- `crates/g3-core/src/lib.rs` [2232..2241] - `ensure_context_capacity()` called inside streaming loop for iteration > 1 (catches post-tool-execution growth).
+- **Root cause**: Heuristic token estimation drifted ~48% over 809 messages / 388 tool calls (136k estimated vs 201k actual). API `prompt_tokens` is ground truth.
+
+### Context Window Calibration (Token Drift Fix) - CORRECTED
+- `crates/g3-core/src/context_window.rs` [168..189] - `update_usage_from_response()` calibrates `used_tokens` from API `prompt_tokens` (ground truth). When `prompt_tokens > 0`, snaps `used_tokens` to it. When 0, leaves unchanged (heuristic fallback).
+- `crates/g3-core/src/lib.rs` [2316..2319] - Calibration call placed **inline** during streaming (when usage chunk arrives in `chunk.usage`), NOT after the streaming loop. Critical because text-only responses take an early return path that bypasses post-loop code.
+- `crates/g3-core/src/lib.rs` [2892..2898] - Post-loop code only handles fallback (no-usage) case now.
+- `crates/g3-core/src/context_window.rs` [87..93] - 1% safety buffer IS still in place (`total_tokens * 0.99`). Left as safety net between calibration points.
+- **Root cause of display bug**: (1) `update_usage_from_response` never calibrated `used_tokens`, only `cumulative_tokens`. (2) `execute_single_task` had mock usage with hardcoded `prompt_tokens: 100`. (3) Post-loop usage update was bypassed by early returns in text-only response paths.
+- **Key streaming flow**: For text-only responses (most common in interactive mode), `chunk.finished` triggers an early `return Ok(self.finalize_streaming_turn(...))` that bypasses all post-loop code. Calibration MUST happen inline when `chunk.usage` arrives.

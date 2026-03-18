@@ -1,8 +1,7 @@
 use g3_core::ContextWindow;
 use g3_providers::{Message, MessageRole, Usage};
 
-/// Test that used_tokens is tracked via add_message, not update_usage_from_response.
-/// This is critical for the 80% compaction threshold to work correctly.
+/// Test that used_tokens is tracked via add_message.
 #[test]
 fn test_used_tokens_tracked_via_messages() {
     let mut window = ContextWindow::new(10000);
@@ -23,17 +22,17 @@ fn test_used_tokens_tracked_via_messages() {
     assert!(window.used_tokens > tokens_after_user_msg, "used_tokens should increase after adding assistant message");
 }
 
-/// Test that update_usage_from_response only updates cumulative_tokens, not used_tokens.
-/// This prevents double-counting which was causing the 80% threshold to be reached at 200%+.
+/// Test that update_usage_from_response calibrates used_tokens from prompt_tokens.
+/// When prompt_tokens > 0, used_tokens is snapped to the API's ground truth.
+/// When prompt_tokens is 0, used_tokens is left unchanged (heuristic fallback).
 #[test]
-fn test_update_usage_only_affects_cumulative() {
+fn test_update_usage_calibrates_used_tokens() {
     let mut window = ContextWindow::new(10000);
 
-    // Initial state
     assert_eq!(window.used_tokens, 0);
     assert_eq!(window.cumulative_tokens, 0);
 
-    // Simulate API response with usage data
+    // Simulate API response — prompt_tokens > 0 triggers calibration
     let usage = Usage {
         prompt_tokens: 100,
         completion_tokens: 50,
@@ -43,13 +42,13 @@ fn test_update_usage_only_affects_cumulative() {
     };
     window.update_usage_from_response(&usage);
 
-    // used_tokens should NOT change - it's tracked via add_message
-    assert_eq!(window.used_tokens, 0, "used_tokens should not be updated by update_usage_from_response");
-    
-    // cumulative_tokens SHOULD be updated for API usage tracking
+    // used_tokens should be calibrated to prompt_tokens
+    assert_eq!(window.used_tokens, 100, "used_tokens should be calibrated to prompt_tokens");
+
+    // cumulative_tokens tracks total API usage
     assert_eq!(window.cumulative_tokens, 150, "cumulative_tokens should track total API usage");
 
-    // Another API call
+    // Another API call with higher prompt_tokens
     let usage2 = Usage {
         prompt_tokens: 200,
         completion_tokens: 75,
@@ -59,11 +58,27 @@ fn test_update_usage_only_affects_cumulative() {
     };
     window.update_usage_from_response(&usage2);
 
-    // used_tokens still unchanged
-    assert_eq!(window.used_tokens, 0, "used_tokens should remain unchanged");
-    
+    // used_tokens calibrated to latest prompt_tokens
+    assert_eq!(window.used_tokens, 200, "used_tokens should be calibrated to latest prompt_tokens");
+
     // cumulative_tokens accumulates
     assert_eq!(window.cumulative_tokens, 425, "cumulative_tokens should accumulate");
+
+    // When prompt_tokens is 0, used_tokens should NOT change (fallback)
+    let usage3 = Usage {
+        prompt_tokens: 0,
+        completion_tokens: 30,
+        total_tokens: 30,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+    };
+    window.update_usage_from_response(&usage3);
+
+    // used_tokens unchanged (prompt_tokens was 0)
+    assert_eq!(window.used_tokens, 200, "used_tokens should not change when prompt_tokens is 0");
+
+    // cumulative_tokens still accumulates
+    assert_eq!(window.cumulative_tokens, 455, "cumulative_tokens should still accumulate");
 }
 
 /// Test that add_streaming_tokens only updates cumulative_tokens.
@@ -112,7 +127,6 @@ fn test_percentage_based_on_used_tokens() {
 }
 
 /// Test that the 80% compaction threshold works correctly.
-/// This was the original bug - used_tokens was being double/triple counted.
 #[test]
 fn test_should_compact_threshold() {
     let mut window = ContextWindow::new(1000);
@@ -125,7 +139,6 @@ fn test_should_compact_threshold() {
     }
 
     // Should be around 720 tokens (72%) - not yet at threshold
-    // Note: actual token count depends on estimation algorithm
     let percentage = window.percentage_used();
     println!("After 9 messages: {}% used ({} tokens)", percentage, window.used_tokens);
 
@@ -142,21 +155,19 @@ fn test_should_compact_threshold() {
     }
 }
 
-/// Test that cumulative_tokens and used_tokens are independent.
+/// Test that calibration and cumulative tracking work together correctly.
 #[test]
-fn test_cumulative_vs_used_independence() {
+fn test_calibration_and_cumulative_interaction() {
     let mut window = ContextWindow::new(10000);
 
-    // Add a message (affects used_tokens)
+    // Add a message (affects both used_tokens and cumulative_tokens)
     let msg = Message::new(MessageRole::User, "Hello world".to_string());
     window.add_message(msg);
     let used_after_msg = window.used_tokens;
     let cumulative_after_msg = window.cumulative_tokens;
-    
-    // Both should be equal at this point (message adds to both)
     assert_eq!(used_after_msg, cumulative_after_msg);
 
-    // Now simulate API response (only affects cumulative_tokens)
+    // Simulate API response — calibrates used_tokens, accumulates cumulative_tokens
     let usage = Usage {
         prompt_tokens: 500,
         completion_tokens: 200,
@@ -166,12 +177,43 @@ fn test_cumulative_vs_used_independence() {
     };
     window.update_usage_from_response(&usage);
 
-    // used_tokens unchanged
-    assert_eq!(window.used_tokens, used_after_msg, "used_tokens should not change from API response");
+    // used_tokens calibrated to prompt_tokens (500)
+    assert_eq!(window.used_tokens, 500, "used_tokens should be calibrated to prompt_tokens");
     
-    // cumulative_tokens increased
+    // cumulative_tokens increased by total_tokens
     assert_eq!(window.cumulative_tokens, cumulative_after_msg + 700, "cumulative_tokens should increase");
     
     // They should now be different
     assert!(window.cumulative_tokens > window.used_tokens, "cumulative should be greater than used");
+}
+
+/// Test that calibration corrects heuristic undercount.
+/// The heuristic doesn't account for tool definitions (~4000 tokens),
+/// so prompt_tokens from the API is always larger.
+#[test]
+fn test_calibration_corrects_undercount() {
+    let mut window = ContextWindow::new(200000);
+
+    // Simulate adding a system prompt and user message via heuristic
+    let system_msg = Message::new(MessageRole::System, "x".repeat(4000)); // ~1000 tokens
+    window.add_message(system_msg);
+    let user_msg = Message::new(MessageRole::User, "Hello".to_string());
+    window.add_message(user_msg);
+
+    let heuristic_estimate = window.used_tokens;
+    assert!(heuristic_estimate > 0);
+
+    // API reports higher prompt_tokens (includes tool definitions)
+    let usage = Usage {
+        prompt_tokens: heuristic_estimate + 4000, // tool definitions add ~4000 tokens
+        completion_tokens: 100,
+        total_tokens: heuristic_estimate + 4100,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+    };
+    window.update_usage_from_response(&usage);
+
+    // used_tokens should now be higher than the heuristic estimate
+    assert_eq!(window.used_tokens, heuristic_estimate + 4000);
+    assert!(window.used_tokens > heuristic_estimate, "calibration should correct undercount");
 }

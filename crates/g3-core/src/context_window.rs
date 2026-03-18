@@ -152,15 +152,37 @@ impl ContextWindow {
     /// Update token usage from provider response.
     ///
     /// NOTE: This only updates cumulative_tokens (total API usage tracking).
-    /// It does NOT update used_tokens because:
-    /// 1. prompt_tokens represents the ENTIRE context sent to API (already tracked via add_message)
-    /// 2. completion_tokens will be tracked when the assistant message is added via add_message
-    /// Adding total_tokens here would cause double/triple counting and break the 80% threshold check.
+    /// Calibrates `used_tokens` from the provider's actual token count when
+    /// available.  Our heuristic estimation (chars/3 or chars/4) drifts
+    /// over long sessions because it doesn't account for tool definitions
+    /// (~4000 tokens) sent alongside the conversation history.
+    ///
+    /// `prompt_tokens` is the ground-truth count of every token the API
+    /// received (system prompt + conversation history + tool definitions).
+    /// By snapping `used_tokens` to this value after each API call, we
+    /// eliminate accumulated drift and ensure `should_compact()` triggers
+    /// at the right time.
+    ///
+    /// When `prompt_tokens` is 0 (some providers don't report it), we leave
+    /// `used_tokens` unchanged and fall back to the heuristic estimate.
     pub fn update_usage_from_response(&mut self, usage: &Usage) {
         self.cumulative_tokens += usage.total_tokens;
+
+        // Calibrate used_tokens from the provider's actual prompt token count.
+        // prompt_tokens = all tokens sent to the API (system + history + tools).
+        // This is the ground truth — use it to correct heuristic drift.
+        if usage.prompt_tokens > 0 {
+            let old = self.used_tokens;
+            self.used_tokens = usage.prompt_tokens;
+            debug!(
+                "Calibrated used_tokens from API: {} -> {} (drift was {} tokens)",
+                old, self.used_tokens, (self.used_tokens as i64 - old as i64).abs()
+            );
+        }
+
         debug!(
-            "Updated cumulative tokens: {} (used: {}/{}, cumulative: {})",
-            usage.total_tokens, self.used_tokens, self.total_tokens, self.cumulative_tokens
+            "Post-calibration: used={}/{}, cumulative={}",
+            self.used_tokens, self.total_tokens, self.cumulative_tokens
         );
     }
 

@@ -714,10 +714,6 @@ async fn test_token_counting_no_double_count() {
 
     let (mut agent, _temp_dir) = create_agent_with_mock(provider).await;
 
-    // Get initial token count
-    let initial_used = agent.get_context_window().used_tokens;
-    let initial_percentage = agent.get_context_window().percentage_used();
-
     // Execute a task
     agent.execute_task("Say something short", None, false).await.unwrap();
 
@@ -725,18 +721,16 @@ async fn test_token_counting_no_double_count() {
     let final_used = agent.get_context_window().used_tokens;
     let final_percentage = agent.get_context_window().percentage_used();
 
-    // The increase should be reasonable (not doubled)
-    // A short response + user message should be < 1000 tokens
-    let token_increase = final_used - initial_used;
+    // With calibration, used_tokens should be snapped to the mock's prompt_tokens (100)
+    // plus any heuristic addition from the assistant response message added after calibration.
+    // The key invariant: no double-counting that would push us to 80%+.
     assert!(
-        token_increase < 1000,
-        "Token increase should be reasonable, got {} ({}% -> {}%)",
-        token_increase,
-        initial_percentage,
-        final_percentage
+        final_used < 2000,
+        "After calibration from mock (prompt_tokens=100), used_tokens should be low, got {}",
+        final_used
     );
     
-    // Percentage should also be reasonable (not jumping to 80%+)
+    // Percentage should be very low (not jumping to 80%+ from double-counting)
     assert!(
         final_percentage < 50.0,
         "Context percentage should be reasonable after one exchange, got {}%",
