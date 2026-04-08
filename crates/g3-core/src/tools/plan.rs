@@ -610,15 +610,21 @@ pub fn write_plan(session_id: &str, plan: &Plan) -> Result<()> {
 
 /// Extract YAML content from a markdown file with ```yaml code block.
 fn extract_yaml_from_markdown(content: &str) -> Result<String> {
-    // Look for ```yaml ... ``` block
     let start_marker = "```yaml";
-    let end_marker = "```";
 
     if let Some(start_idx) = content.find(start_marker) {
         let yaml_start = start_idx + start_marker.len();
-        if let Some(end_idx) = content[yaml_start..].find(end_marker) {
-            let yaml = content[yaml_start..yaml_start + end_idx].trim();
-            return Ok(yaml.to_string());
+        // Find closing ``` that appears at the start of a line.
+        // A simple .find("```") would match backticks embedded inside YAML
+        // string values (e.g., descriptions containing code fences), truncating
+        // the YAML and causing parse errors.
+        let remainder = &content[yaml_start..];
+        for (i, line) in remainder.split('\n').enumerate() {
+            if i > 0 && line.starts_with("```") {
+                let offset: usize = remainder.split('\n').take(i).map(|l| l.len() + 1).sum();
+                let yaml = remainder[..offset].trim();
+                return Ok(yaml.to_string());
+            }
         }
     }
 
@@ -1278,6 +1284,55 @@ items: []
 ```
 "#;
 
+        let yaml = extract_yaml_from_markdown(md).unwrap();
+        assert!(yaml.contains("plan_id: test"));
+    }
+
+    #[test]
+    fn test_yaml_extraction_with_backticks_in_values() {
+        // This is the exact bug: YAML values containing ``` caused
+        // extract_yaml_from_markdown to truncate at the embedded backticks
+        // instead of finding the real closing fence.
+        let md = "# Plan: test\n\n## Plan Data\n\n\
+```yaml\n\
+plan_id: test\n\
+revision: 1\n\
+items:\n\
+  - id: I1\n\
+    description: 'Fix the ```yaml parsing issue with ```'\n\
+    state: todo\n\
+    touches:\n\
+      - src/plan.rs\n\
+    checks:\n\
+      happy:\n\
+        desc: Works\n\
+        target: plan\n\
+      negative:\n\
+        - desc: Fails gracefully\n\
+          target: plan\n\
+      boundary:\n\
+        - desc: Edge case\n\
+          target: plan\n\
+```\n";
+
+        let yaml = extract_yaml_from_markdown(md).unwrap();
+        // Must contain the full YAML, not truncated at the embedded backticks
+        assert!(yaml.contains("plan_id: test"), "should contain plan_id");
+        assert!(yaml.contains("description:"), "should contain description field");
+        assert!(yaml.contains("state: todo"), "should contain state field");
+        assert!(yaml.contains("checks:"), "should contain checks");
+    }
+
+    #[test]
+    fn test_yaml_extraction_no_code_block_fallback() {
+        let raw_yaml = "plan_id: test\nrevision: 1\nitems: []\n";
+        let yaml = extract_yaml_from_markdown(raw_yaml).unwrap();
+        assert_eq!(yaml, raw_yaml);
+    }
+
+    #[test]
+    fn test_yaml_extraction_closing_fence_no_trailing_newline() {
+        let md = "```yaml\nplan_id: test\nrevision: 1\nitems: []\n```";
         let yaml = extract_yaml_from_markdown(md).unwrap();
         assert!(yaml.contains("plan_id: test"));
     }
