@@ -1,5 +1,5 @@
 # Workspace Memory
-> Updated: 2026-03-18T03:59:01Z | Size: 25.2k chars
+> Updated: 2026-05-02T05:35:05Z | Size: 26.4k chars
 
 ### Remember Tool Wiring
 - `crates/g3-core/src/tools/memory.rs` [0..5686]
@@ -412,3 +412,16 @@ Tool output responsive to terminal width — no line wrapping, 4-char right marg
 - `crates/g3-core/src/context_window.rs` [87..93] - 1% safety buffer IS still in place (`total_tokens * 0.99`). Left as safety net between calibration points.
 - **Root cause of display bug**: (1) `update_usage_from_response` never calibrated `used_tokens`, only `cumulative_tokens`. (2) `execute_single_task` had mock usage with hardcoded `prompt_tokens: 100`. (3) Post-loop usage update was bypassed by early returns in text-only response paths.
 - **Key streaming flow**: For text-only responses (most common in interactive mode), `chunk.finished` triggers an early `return Ok(self.finalize_streaming_turn(...))` that bypasses all post-loop code. Calibration MUST happen inline when `chunk.usage` arrives.
+
+### Anthropic Temperature Stripping (API Constraint)
+Anthropic's API rejects the `temperature` field for newer models (e.g. extended-thinking / reasoning models like claude-sonnet-4-5).
+
+- `crates/g3-providers/src/anthropic.rs`
+  - `AnthropicRequest` struct [~895] - NO `temperature` field (must NEVER be re-added)
+  - `create_request_body()` [559] - 5-arg signature, no temperature param
+  - `AnthropicProvider::new()` [~263] - still accepts `temperature: Option<f32>` for backward compat but does NOT send it
+  - `fn temperature(&self) -> f32` [~878] - returns `self.temperature` (preserves trait contract for callers like g3-planner/src/lib.rs:97 that read configured temp to seed OTHER provider requests)
+  - `test_request_body_omits_temperature_field` - regression test guarding wire format
+- `crates/g3-providers/src/openai.rs:84-87` - OpenAI also strips temperature ('seem to fail') — likely similar issue for o-series models
+- `crates/g3-core/src/streaming.rs:301-305` - error log labels temperature as "request-level, may be stripped per-provider"
+- **Other providers send temperature normally**: Databricks (line 934), Gemini (line 529), Embedded (line 361)

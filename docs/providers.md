@@ -37,7 +37,9 @@ This document describes the LLM providers supported by g3, their capabilities, a
 api_key = "sk-ant-api03-..."     # Required
 model = "claude-sonnet-4-5"      # Model name
 max_tokens = 64000               # Max output tokens
-temperature = 0.3                # 0.0-1.0
+# temperature = 0.3              # IGNORED by Anthropic API (rejected on
+                                 # newer reasoning models). Accepted in config
+                                 # for backward compat but not sent on the wire.
 cache_config = "ephemeral"       # Optional: Enable caching
 enable_1m_context = true          # Optional: 1M context
 thinking_budget_tokens = 10000    # Optional: Extended thinking

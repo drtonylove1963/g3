@@ -61,7 +61,10 @@ default_provider = "anthropic.default"
 api_key = "sk-ant-..."           # Required: Your Anthropic API key
 model = "claude-sonnet-4-5"      # Model to use
 max_tokens = 64000               # Max output tokens per request
-temperature = 0.3                # Sampling temperature (0.0-1.0)
+# temperature = 0.3              # Ignored: Anthropic API rejects this field on
+                                 # newer reasoning/thinking models. The setting
+                                 # is accepted in config for backward compat
+                                 # but is NOT sent on the wire.
 # cache_config = "ephemeral"     # Optional: Enable prompt caching
 # enable_1m_context = true        # Optional: Enable 1M context (extra cost)
 # thinking_budget_tokens = 10000  # Optional: Extended thinking mode
@@ -270,13 +273,17 @@ player = "anthropic.player"  # Code implementer
 api_key = "sk-ant-..."
 model = "claude-sonnet-4-5"
 max_tokens = 32000
-temperature = 0.1            # Lower for consistent reviews
+# temperature = 0.1          # Ignored: Anthropic API rejects this field. To
+                             # influence output style with Anthropic, use
+                             # different models or thinking_budget_tokens.
 
 [providers.anthropic.player]
 api_key = "sk-ant-..."
 model = "claude-sonnet-4-5"
 max_tokens = 64000
-temperature = 0.3            # Higher for creative implementations
+# temperature = 0.3          # Ignored: Anthropic API rejects this field. To
+                             # influence output style with Anthropic, use
+                             # different models or thinking_budget_tokens.
 ```
 
 See `config.coach-player.example.toml` for a complete example.
@@ -324,7 +331,7 @@ default_provider = "anthropic.default"
 api_key = "sk-ant-api03-..."
 model = "claude-sonnet-4-5"
 max_tokens = 64000
-temperature = 0.3
+# temperature = 0.3   # Ignored by Anthropic API (see Anthropic config section)
 
 [providers.databricks.work]
 host = "https://mycompany.cloud.databricks.com"

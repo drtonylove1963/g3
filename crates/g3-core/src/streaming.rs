@@ -299,7 +299,10 @@ pub fn log_stream_error(
     error!("  - Messages count: {}", request.messages.len());
     error!("  - Has tools: {}", request.tools.is_some());
     error!("  - Max tokens: {:?}", request.max_tokens);
-    error!("  - Temperature: {:?}", request.temperature);
+    // Note: This is the temperature on the CompletionRequest from the caller,
+    // not necessarily what was sent on the wire. Some providers (e.g. Anthropic,
+    // OpenAI o-series) strip `temperature` before serialization.
+    error!("  - Temperature (request-level, may be stripped per-provider): {:?}", request.temperature);
     error!("  - Stream: {}", request.stream);
 
     error!("Raw chunks received ({} total):", chunks_received);

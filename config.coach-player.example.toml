@@ -21,21 +21,23 @@ player = "anthropic.player"
 api_key = "your-anthropic-api-key"
 model = "claude-sonnet-4-5"
 max_tokens = 64000
-temperature = 0.2
+# temperature = 0.2  # IGNORED by Anthropic API. To vary output style across
+                     # coach/player roles below, use different models or
+                     # thinking_budget_tokens instead.
 
 # Coach configuration - focused on careful analysis
 [providers.anthropic.coach]
 api_key = "your-anthropic-api-key"
 model = "claude-sonnet-4-5"
 max_tokens = 32000
-temperature = 0.1  # Lower temperature for more consistent reviews
+# temperature = 0.1  # IGNORED by Anthropic API (see note above)
 
 # Player configuration - focused on code generation
 [providers.anthropic.player]
 api_key = "your-anthropic-api-key"
 model = "claude-sonnet-4-5"
 max_tokens = 64000
-temperature = 0.3  # Slightly higher for more creative implementations
+# temperature = 0.3  # IGNORED by Anthropic API (see note above)
 
 # Optional: Planner configuration with extended thinking
 # [providers.anthropic.planner]

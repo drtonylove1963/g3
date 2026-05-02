@@ -17,9 +17,17 @@ cp target/release/studio "$INSTALL_DIR/g3-studio"
 
 # Re-sign binaries after copying (required on macOS to avoid security policy rejection)
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "Re-signing binaries for macOS..."
-    codesign --force --sign - "$INSTALL_DIR/g3"
-    codesign --force --sign - "$INSTALL_DIR/g3-studio"
+    SIGN_IDENTITY="Butler Local Signing"
+    if security find-identity -v -p codesigning 2>&1 | grep -q "$SIGN_IDENTITY"; then
+        echo "Re-signing binaries for macOS (identity: $SIGN_IDENTITY)..."
+        codesign --force --sign "$SIGN_IDENTITY" --identifier "com.wideplay.butler.g3" "$INSTALL_DIR/g3"
+        codesign --force --sign "$SIGN_IDENTITY" --identifier "com.wideplay.butler.g3-studio" "$INSTALL_DIR/g3-studio"
+    else
+        echo "⚠️  Signing identity '$SIGN_IDENTITY' not found — falling back to ad-hoc signing"
+        echo "   (You may get repeated macOS permission prompts. See butler docs for cert setup.)"
+        codesign --force --sign - "$INSTALL_DIR/g3"
+        codesign --force --sign - "$INSTALL_DIR/g3-studio"
+    fi
 fi
 
 # Create symlink to override Android Studio's 'studio' command

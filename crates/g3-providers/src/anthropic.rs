@@ -36,7 +36,6 @@
 //!             Message::new(MessageRole::User, "Hello! How are you?".to_string()),
 //!         ],
 //!         max_tokens: Some(1000),
-//!         temperature: Some(0.7),
 //!         stream: false,
 //!         tools: None,
 //!         disable_thinking: false,
@@ -73,7 +72,6 @@
 //!             Message::new(MessageRole::User, "Write a short story about a robot.".to_string()),
 //!         ],
 //!         max_tokens: Some(1000),
-//!         temperature: Some(0.7),
 //!         stream: true,
 //!         tools: None,
 //!         disable_thinking: false,
@@ -264,6 +262,18 @@ impl StreamState {
 }
 
 impl AnthropicProvider {
+    /// Create a new AnthropicProvider.
+    ///
+    /// # Note on `temperature`
+    /// The `temperature` parameter is **accepted but never sent on the wire**.
+    /// Anthropic's API rejects the `temperature` field for newer models
+    /// (e.g. extended-thinking / reasoning models), so it is stripped from
+    /// `AnthropicRequest` entirely. The value is still stored on the provider
+    /// and exposed via [`LLMProvider::temperature`] for callers that read the
+    /// configured value for other purposes (e.g. seeding requests against a
+    /// different provider). See `temperature()` impl for details. To re-add
+    /// temperature to the wire format, restore the field on `AnthropicRequest`
+    /// and reinstate the regression test guarding against it.
     pub fn new(
         api_key: String,
         model: Option<String>,
@@ -564,7 +574,6 @@ impl AnthropicProvider {
         tools: Option<&[Tool]>,
         streaming: bool,
         max_tokens: u32,
-        temperature: f32,
         disable_thinking: bool,
     ) -> Result<AnthropicRequest> {
         let (system, anthropic_messages) = self.convert_messages(messages)?;
@@ -608,7 +617,6 @@ impl AnthropicProvider {
         let request = AnthropicRequest {
             model: self.model.clone(),
             max_tokens,
-            temperature,
             messages: anthropic_messages,
             system,
             tools: anthropic_tools,
@@ -727,20 +735,18 @@ impl LLMProvider for AnthropicProvider {
         );
 
         let max_tokens = request.max_tokens.unwrap_or(self.max_tokens);
-        let temperature = request.temperature.unwrap_or(self.temperature);
 
         let request_body = self.create_request_body(
             &request.messages,
             request.tools.as_deref(),
             false,
             max_tokens,
-            temperature,
             request.disable_thinking,
         )?;
 
         debug!(
-            "Sending request to Anthropic API: model={}, max_tokens={}, temperature={}",
-            request_body.model, request_body.max_tokens, request_body.temperature
+            "Sending request to Anthropic API: model={}, max_tokens={} (temperature omitted: not supported by Anthropic API)",
+            request_body.model, request_body.max_tokens
         );
 
         let response = self
@@ -803,20 +809,18 @@ impl LLMProvider for AnthropicProvider {
         );
 
         let max_tokens = request.max_tokens.unwrap_or(self.max_tokens);
-        let temperature = request.temperature.unwrap_or(self.temperature);
 
         let request_body = self.create_request_body(
             &request.messages,
             request.tools.as_deref(),
             true,
             max_tokens,
-            temperature,
             request.disable_thinking,
         )?;
 
         debug!(
-            "Sending streaming request to Anthropic API: model={}, max_tokens={}, temperature={}",
-            request_body.model, request_body.max_tokens, request_body.temperature
+            "Sending streaming request to Anthropic API: model={}, max_tokens={} (temperature omitted: not supported by Anthropic API)",
+            request_body.model, request_body.max_tokens
         );
 
         // Debug: Log the full request body
@@ -884,6 +888,11 @@ impl LLMProvider for AnthropicProvider {
     }
 
     fn temperature(&self) -> f32 {
+        // Note: Anthropic's API no longer accepts a `temperature` field on the
+        // wire (newer reasoning models reject it), so this value is NOT sent in
+        // requests. It is retained for the LLMProvider trait contract — callers
+        // such as g3-planner read it to seed `CompletionRequest.temperature` for
+        // other providers that may share configuration.
         self.temperature
     }
 }
@@ -910,7 +919,6 @@ impl ThinkingConfig {
 struct AnthropicRequest {
     model: String,
     max_tokens: u32,
-    temperature: f32,
     messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     system: Option<String>,
@@ -1132,15 +1140,59 @@ mod tests {
         let messages = vec![Message::new(MessageRole::User, "Test message".to_string())];
 
         let request_body = provider
-            .create_request_body(&messages, None, false, 1000, 0.5, false)
+            .create_request_body(&messages, None, false, 1000, false)
             .unwrap();
 
         assert_eq!(request_body.model, "claude-3-haiku-20240307");
         assert_eq!(request_body.max_tokens, 1000);
-        assert_eq!(request_body.temperature, 0.5);
         assert!(!request_body.stream);
         assert_eq!(request_body.messages.len(), 1);
         assert!(request_body.tools.is_none());
+    }
+
+    /// Regression test: Anthropic's API rejects the `temperature` field for
+    /// newer models (e.g. extended-thinking / reasoning models). The
+    /// serialized request body MUST NOT contain a `temperature` key, for both
+    /// streaming and non-streaming requests. If this test fails, someone
+    /// likely re-added `temperature` to `AnthropicRequest`.
+    #[test]
+    fn test_request_body_omits_temperature_field() {
+        let provider = AnthropicProvider::new(
+            "test-key".to_string(),
+            Some("claude-sonnet-4-5".to_string()),
+            Some(1000),
+            Some(0.7), // Constructor accepts temperature but should NOT serialize it
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let messages = vec![Message::new(MessageRole::User, "Test".to_string())];
+
+        // Non-streaming request body
+        let request_non_stream = provider
+            .create_request_body(&messages, None, false, 1000, false)
+            .unwrap();
+        let json_non_stream = serde_json::to_string(&request_non_stream).unwrap();
+        assert!(
+            !json_non_stream.contains("\"temperature\""),
+            "Non-streaming AnthropicRequest JSON must NOT contain a 'temperature' \
+             field (Anthropic API rejects it on newer models). Got: {}",
+            json_non_stream
+        );
+
+        // Streaming request body
+        let request_stream = provider
+            .create_request_body(&messages, None, true, 1000, false)
+            .unwrap();
+        let json_stream = serde_json::to_string(&request_stream).unwrap();
+        assert!(
+            !json_stream.contains("\"temperature\""),
+            "Streaming AnthropicRequest JSON must NOT contain a 'temperature' \
+             field (Anthropic API rejects it on newer models). Got: {}",
+            json_stream
+        );
     }
 
     #[test]
@@ -1240,7 +1292,7 @@ mod tests {
 
         let messages = vec![Message::new(MessageRole::User, "Test message".to_string())];
         let request_without = provider_without
-            .create_request_body(&messages, None, false, 1000, 0.5, false)
+            .create_request_body(&messages, None, false, 1000, false)
             .unwrap();
         let json_without = serde_json::to_string(&request_without).unwrap();
         assert!(
@@ -1262,7 +1314,7 @@ mod tests {
         .unwrap();
 
         let request_with = provider_with
-            .create_request_body(&messages, None, false, 20000, 0.5, false)
+            .create_request_body(&messages, None, false, 20000, false)
             .unwrap();
         let json_with = serde_json::to_string(&request_with).unwrap();
         assert!(
@@ -1280,7 +1332,7 @@ mod tests {
 
         // Test WITH thinking parameter but INSUFFICIENT max_tokens - thinking should be disabled
         let request_insufficient = provider_with
-            .create_request_body(&messages, None, false, 5000, 0.5, false) // Less than budget + 1024
+            .create_request_body(&messages, None, false, 5000, false) // Less than budget + 1024
             .unwrap();
         let json_insufficient = serde_json::to_string(&request_insufficient).unwrap();
         assert!(
@@ -1307,7 +1359,7 @@ mod tests {
 
         // With disable_thinking=false, thinking should be enabled (max_tokens is sufficient)
         let request_with_thinking = provider
-            .create_request_body(&messages, None, false, 20000, 0.5, false)
+            .create_request_body(&messages, None, false, 20000, false)
             .unwrap();
         let json_with = serde_json::to_string(&request_with_thinking).unwrap();
         assert!(
@@ -1317,7 +1369,7 @@ mod tests {
 
         // With disable_thinking=true, thinking should be disabled even with sufficient max_tokens
         let request_without_thinking = provider
-            .create_request_body(&messages, None, false, 20000, 0.5, true)
+            .create_request_body(&messages, None, false, 20000, true)
             .unwrap();
         let json_without = serde_json::to_string(&request_without_thinking).unwrap();
         assert!(
