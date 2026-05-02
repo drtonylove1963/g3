@@ -36,6 +36,8 @@
 //!             Message::new(MessageRole::User, "Hello! How are you?".to_string()),
 //!         ],
 //!         max_tokens: Some(1000),
+//!         temperature: None, // Note: Anthropic API ignores temperature; field
+//!                            // retained on CompletionRequest for other providers.
 //!         stream: false,
 //!         tools: None,
 //!         disable_thinking: false,
@@ -72,6 +74,7 @@
 //!             Message::new(MessageRole::User, "Write a short story about a robot.".to_string()),
 //!         ],
 //!         max_tokens: Some(1000),
+//!         temperature: None, // Note: Anthropic API ignores temperature.
 //!         stream: true,
 //!         tools: None,
 //!         disable_thinking: false,
